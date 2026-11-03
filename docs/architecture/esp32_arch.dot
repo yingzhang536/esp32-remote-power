@@ -1,0 +1,44 @@
+digraph esp32_power {
+    graph [fontname="Droid Sans Fallback", fontsize=12,
+        bgcolor="#0f172a", pad="0.5", ranksep="0.6", nodesep="0.35",
+        label="ESP32 远程开机控制器 — 架构", labelloc="t", labeljust="l",
+        fontcolor="#e2e8f0"];
+    node [fontname="Droid Sans Fallback", fontsize=10, shape=box, style="rounded,filled",
+        color="#334155", fillcolor="#1e293b", fontcolor="#e2e8f0", penwidth=1];
+    edge [fontname="Droid Sans Fallback", fontsize=8, color="#64748b", fontcolor="#94a3b8"];
+
+    // ============ 云端（控制端）============
+    subgraph cluster_ecs {
+        label="① 阿里云 ECS（控制端）"; fontcolor="#7dd3fc"; style="rounded"; color="#155e75";
+        Ctrl [label="控制端 send_power_cmd.py\n(paho 发布 trigger, 带触发日志)", fillcolor="#164e63"];
+        Broker [label="MQTT Broker mosquitto\n公网监听 8081", fillcolor="#164e63"];
+    }
+
+    // ============ 网络链路 ============
+    subgraph cluster_net {
+        label="② 网络链路"; fontcolor="#fbbf24"; style="rounded"; color="#92400e";
+        Mqtt [label="公网 MQTT 8081\n主题 device/pc_power\npayload: trigger", fillcolor="#451a03"];
+        Wifi [label="家庭路由器 WiFi", fillcolor="#451a03"];
+    }
+
+    // ============ 设备端 ============
+    subgraph cluster_dev {
+        label="③ 设备端 ESP32 DevKitC"; fontcolor="#86efac"; style="rounded"; color="#166534";
+        Firm [label="固件 PC_PowerRelay.ino\nWiFi + PubSubClient\n开漏 GPIO4 拉低 0.4s\n10s 冷却防误触", fillcolor="#14532d"];
+    }
+
+    // ============ 执行与负载 ============
+    subgraph cluster_hw {
+        label="④ 执行与负载"; fontcolor="#f472b6"; style="rounded"; color="#9d174d";
+        Relay [label="5V 光耦继电器\n低电平触发 (IN=LOW 吸合)", fillcolor="#500724"];
+        PC [label="台式机主板\n电源按键焊点 COM/NO\n(并联, 保留物理按键)", fillcolor="#500724"];
+    }
+
+    // ============ 连线 ============
+    Ctrl -> Broker [label="publish trigger"];
+    Broker -> Mqtt [label="公网 8081"];
+    Mqtt -> Firm [label="MQTT 订阅"];
+    Wifi -> Firm [label="WiFi 连接"];
+    Firm -> Relay [label="GPIO4 拉低 0.4s"];
+    Relay -> PC [label="触点短接 = 按下电源键"];
+}

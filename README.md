@@ -5,16 +5,9 @@ ESP32 + 光耦隔离继电器并联主板电源键，模拟人手短接电源按
 
 ## 架构图
 
-```mermaid
-graph LR
-    subgraph ECS["阿里云 ECS"]
-        CTRL["控制端<br/>send_power_cmd.py<br/>paho 发布 trigger"] --> BROKER["MQTT Broker<br/>mosquitto<br/>公网监听 8081"]
-    end
-    BROKER -->|"MQTT 主题 device/pc_power<br/>payload: trigger"| ESP["ESP32 DevKitC<br/>WiFi + PubSubClient"]
-    ESP -->|"GPIO4 开漏<br/>拉低 0.4s"| RELAY["5V 光耦继电器<br/>低电平触发"]
-    RELAY -->|"COM/NO 触点并联"| PC["台式机主板<br/>电源按键焊点"]
-    WIFI["家庭路由器 WiFi"] -.-> ESP
-```
+![ESP32 远程开机控制器架构](docs/architecture/esp32_arch.png)
+
+> 架构图源文件：`docs/architecture/esp32_arch.dot`（graphviz），修改后 `dot -Tpng -o esp32_arch.png esp32_arch.dot` 重新生成。
 
 ## 工作原理
 
