@@ -13,20 +13,20 @@ send_power_cmd.sh  →  mosquitto  →   simulator.py (扮演 ESP32)
 
 ## 前置条件
 
-1. ECS 上已部署 Broker(还没部署就在 ECS 上跑 `sudo bash projects/esp32/server/install_mosquitto.sh` —— 需要先同步 server/ 目录到 ECS)
-2. 阿里云安全组放行 TCP 1883
+1. ECS 上已部署 Broker(还没部署就在 ECS 上跑 `sudo bash server/install_mosquitto.sh` —— 需要先同步 server/ 目录到 ECS)
+2. 阿里云安全组放行 TCP 8081（公网路径；1883 仅内网测试用）
 3. 本地已装 paho-mqtt(`pip3 install --user paho-mqtt`, 已装过)
 
 ## 测试步骤
 
 ```bash
 # 终端 1(本地): 起模拟器, 扮演 ESP32
-cd projects/esp32/simulator
+cd simulator
 python3 simulator.py <ECS公网IP>
 # 看到 "[MQTT] 连接成功 rc=0, 订阅 device/pc_power" 即链路通
 
-# 终端 2(ECS 上): 触发开机
-bash send_power_cmd.sh
+# 终端 2(ECS 上): 触发开机（脚本在 server/ 目录）
+cd server && bash send_power_cmd.sh
 
 # 回终端 1 看:
 #   [MQTT] 收到主题 device/pc_power | payload: trigger
@@ -74,7 +74,7 @@ sudo systemctl restart mosquitto
 
 ## 之后换真机
 
-1. Arduino IDE 打开 `learning/esp32/Arduino/PC_PowerRelay/PC_PowerRelay.ino`
+1. Arduino IDE 打开 `PC_PowerRelay/PC_PowerRelay.ino`
 2. 改配置: ssid / password / mqttServer = ECS 公网 IP
 3. 烧录, 串口监视器看日志(格式和模拟器一致)
 4. 同样在 ECS 跑 `bash send_power_cmd.sh`, 继电器应吸合 0.4s

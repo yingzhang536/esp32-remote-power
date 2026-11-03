@@ -28,6 +28,8 @@ ESP32 + 光耦隔离继电器并联主板电源键，模拟人手短接电源按
 
 ```
 esp32-remote-power/
+├── esp32_arch.dot            # 架构图源文件（graphviz）
+├── esp32_arch.png            # 架构图（README 引用）
 ├── PC_PowerRelay/            # ESP32 固件（Arduino IDE）
 │   ├── PC_PowerRelay.ino     # 主固件 v7（开漏驱动、冷却、自动重连）
 │   └── 接线说明.md            # 接线 + 分阶段测试步骤（含真实主板接法）
@@ -35,8 +37,8 @@ esp32-remote-power/
 │   ├── install_mosquitto.sh  # MQTT Broker 一键部署 + 自测
 │   ├── send_power_cmd.py     # 控制脚本（paho，带触发日志）
 │   └── send_power_cmd.sh     # 备用（mosquitto_pub 版）
-└── simulator/                # 模拟器（无硬件验证 MQTT 全链路）
-    ├── simulator.py
+└── simulator/                # 模拟器：没有硬件也能验证 MQTT 全链路
+    ├── simulator.py          # 模拟 ESP32 订阅/冷却逻辑（改 mqttServer 指向 ECS 即可跑）
     └── README.md
 ```
 
@@ -67,10 +69,12 @@ esp32-remote-power/
 ### 1. 服务端（ECS）
 
 ```bash
-sudo bash install_mosquitto.sh          # 部署 MQTT Broker + 自测
-# 安全组放行 TCP 8081（来源限定自己的 IP，别 0.0.0.0/0 裸奔）
+cd server
+sudo bash install_mosquitto.sh          # 部署 MQTT Broker + 自测（脚本默认监听 1883，内网测试用）
+# 公网路径（真机部署）：追加 8081 监听，安全组放行 TCP 8081（来源限定自己的 IP，别 0.0.0.0/0 裸奔）
 sudo bash -c 'echo -e "\nlistener 8081 0.0.0.0" >> /etc/mosquitto/mosquitto.conf'
 sudo systemctl restart mosquitto
+# 端口约定：固件 mqttPort=8081，公网必须用 8081（安全组只放行它）；1883 是脚本默认的内网测试端口
 ```
 
 ### 2. 固件烧录（Arduino IDE）
@@ -82,8 +86,8 @@ sudo systemctl restart mosquitto
 ### 3. 使用
 
 ```bash
-# ECS 上执行（带触发日志）
-python3 send_power_cmd.py
+# ECS 上执行（带触发日志），脚本在 server/ 目录
+cd server && python3 send_power_cmd.py
 # 日志：/var/log/pc_power_control.log
 ```
 
