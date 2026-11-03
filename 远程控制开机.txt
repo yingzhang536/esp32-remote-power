@@ -1,0 +1,241 @@
+# 开发需求文档：ESP32远程开机控制器
+
+文档版本：V1.0
+目标：台式机关机状态下，由阿里云服务器上的控制脚本/服务下发指令，远程触发台式机电源按键，实现电脑开机；保留机箱原生电源按钮功能。
+
+> 
+> 硬件来源：ESP32高级学习套件
+
+## 1 项目概述
+
+### 1.1 项目背景
+
+惠普台式机完全关机后，需要远程开机。电脑关机后本机程序、FRP客户端无法运行；采用ESP32+光耦隔离继电器，并联主板电源按键，模拟人手短接电源按钮实现开机。ESP32独立保持联网，由阿里云ECS上的控制脚本/服务作为控制端下发开机指令。
+
+### 1.2 项目目标
+
+1. ESP32上电自动连接家庭WiFi，保持长连接状态。
+2. ESP32订阅阿里云MQTT服务，等待控制端下发开机指令。
+3. ESP32收到合法指令后，驱动继电器闭合0.4s，模拟按下台式机电源按键。
+4. 增加冷却防误触逻辑，短时间重复指令不会重复触发。
+5. 原有机箱物理电源按键功能不受影响，可正常开关机。
+6. 光耦隔离设计，保护ESP32和台式主板，两边电气隔离。
+
+### 1.3 硬件物料清单（来自套件）
+
+| 序号 | 名称 | 数量 | 备注 |
+| --- | --- | --- | --- |
+| 1 | ESP32开发板 | 1 | 主控 |
+| 2 | 5V光耦隔离继电器模块 | 1 | 执行器件，NO/COM触点模拟按键 |
+| 3 | 杜邦线 | 若干 | 接线 |
+
+> 
+> 可选：独立5V手机充电器（推荐给ESP32供电）
+
+## 2 硬件需求
+
+### 2.1 ESP32 ↔ 继电器模块接线
+
+1. 继电器VCC → ESP32 5V
+2. 继电器GND → ESP32 GND
+3. 继电器IN信号脚 → ESP32 GPIO2> 
+> 套件内该继电器模块为**低电平触发**：IN=LOW，继电器吸合；IN=HIGH，继电器断开。上电默认状态：继电器断开。
+
+### 2.2 继电器负载侧（主板电源按键）接线
+
+1. 使用继电器 COM（公共端）、NO（常开）引脚
+2. COM、NO两根线并联焊接到台式主板电源按键背面两个焊点
+3. 触点无极性，两根线不分正反
+4. ❌禁止使用NC常闭引脚
+
+### 2.3 ESP32供电方案（二选一，优先方案1）
+
+方案1【推荐】：独立5V手机充电器供电，ESP32持续在线，不受主板待机供电电流限制。
+方案2：台式主板前置USB插针待机5V供电；需要进惠普主板BIOS开启S5模式USB待机供电。
+
+> 
+> 风险提示：惠普部分主板S5待机USB电流小，会造成ESP32反复重启，优先独立电源。
+
+### 2.4 安全强制要求
+
+1. 焊接主板前，**必须拔掉台式机电源线**，释放主板残余电压。
+2. 继电器触点只接主板电源按键无源引脚，不接入220V强电。
+3. 焊接完成前，先脱离主板单独测试继电器动作，确认正常再上机。
+
+## 3 软件需求
+
+### 3.1 通信架构
+
+- 服务端：阿里云ECS部署MQTT Broker（服务端）
+- 设备端：ESP32作为MQTT客户端，上电自动连接MQTT，持续订阅主题
+- 控制端：阿里云 ECS 上的控制脚本/服务（mosquitto_pub 或自写服务）发布 MQTT 消息触发开机> 
+> MQTT主题约定：`device/pc_power`
+> 触发指令payload：`trigger`
+
+### 3.2 ESP32固件功能需求
+
+1. WiFi自动连接：上电自动连接指定家庭WiFi；断网自动重连。
+2. MQTT自动重连：MQTT掉线自动重试连接，持续订阅目标主题。
+3. 继电器动作逻辑：收到`trigger`消息，继电器吸合0.4秒后释放。
+4. 防重复触发冷却机制：单次触发后，**10秒冷却时间**，冷却期内收到指令直接丢弃，不执行动作，避免网络抖动多次触发长按电源。
+5. 串口日志输出：串口打印WiFi连接状态、MQTT连接状态、触发事件日志，用于调试。
+6. IO默认状态：上电GPIO2输出高电平，继电器保持断开，不会一上电就触发开机。
+
+### 3.3 控制端逻辑
+
+1. 控制端脚本/服务运行在阿里云 ECS，调用 MQTT 客户端，向 MQTT 主题 `device/pc_power` 发送消息 `trigger`。
+2. Agent执行下发指令前，可增加日志记录：记录触发时间、触发请求来源。
+3. 可选扩展：增加指令回执，ESP32触发完成后上报状态给MQTT，控制端接收回执确认执行成功。
+
+### 3.4 代码约束
+
+开发环境：Arduino IDE，乐鑫ESP32核心包 esp32 by Espressif Systems
+依赖库：
+
+- WiFi（内置）
+- PubSubClient（MQTT库）
+
+## 4 测试规范（分阶段执行）
+
+### 阶段1：离线硬件单独测试（不接主板）
+
+1. ESP32 + 继电器接线，上电，确认上电继电器不会吸合。
+2. 本地发送MQTT trigger指令，确认继电器吸合0.4s断开。
+3. 短时间连续发送指令，验证10s冷却防重复触发生效。
+
+### 阶段2：台式主板静态接线测试（断电状态）
+
+1. 断电，焊接继电器触点到主板电源按键焊点。
+2. 万用表测量NO/COM：继电器默认状态断开；触发指令后短暂导通0.4s。
+
+### 阶段3：整机本地测试
+
+1. 台式机完全关机状态，ESP32保持在线。
+2. 本地局域网下发trigger指令，验证电脑正常开机；机箱物理按键依然可用。
+
+### 阶段4：外网全链路测试
+
+控制端（阿里云 ECS 脚本/服务）下发 MQTT trigger 指令，远程触发开机，验证全链路可用性。
+
+## 5 风险清单
+
+| 风险 | 影响 | 规避方案 |
+| --- | --- | --- |
+| 继电器上电误吸合 | 开机后立刻强制关机 | 固件上电默认高电平；先单独测试继电器 |
+| 主板待机供电不足 | ESP32反复重启WiFi掉线 | 优先使用独立手机充电器给ESP32供电 |
+| 网络抖动重复指令 | 短时间多次触发，长按电源强制关机 | 增加10s冷却时间，丢弃冷却期内指令 |
+| 主板焊接短路 | 烧毁主板 | 断电操作，焊接前拔掉主机电源线，先不带主板测试 |
+| WiFi断连 | ESP32离线无法远程开机 | 固件增加WiFi、MQTT自动重连逻辑 |
+
+## 6 交付物
+
+1. ESP32 Arduino完整源码（带注释）
+2. 接线说明文档
+3. MQTT Broker部署脚本（阿里云ECS）
+4. MQTT 控制指令脚本/服务（阿里云 ECS）
+5. 分阶段测试步骤文档
+
+## 7 扩展预留（可选后续迭代）
+
+1. ESP32上报PC状态（通过主板5V待机信号判断主机关机/开机）
+2. 增加Web管理页面
+3. 增加指令鉴权，非法payload拒绝执行
+
+---
+
+下面是可直接使用的 ESP32 源码：
+
+```
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+// ========= 配置项，可修改 =========
+const char* ssid     = "YOUR_WIFI_NAME";
+const char* password = "YOUR_WIFI_PASSWORD";
+const char* mqttServer = "阿里云ECS公网IP";
+const uint16_t mqttPort = 1883;
+const char* mqttTopic = "device/pc_power";
+#define RELAY_PIN 2
+const unsigned long COOL_DOWN_TIME = 10000; //10s冷却
+const unsigned long PRESS_DURATION = 400;    //按键按下时长0.4s
+// =================================
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+unsigned long lastTriggerTime = 0;
+
+// 执行模拟按下电源按键
+void pressPowerButton(){
+  unsigned long now = millis();
+  if(now - lastTriggerTime < COOL_DOWN_TIME){
+    Serial.println("冷却中，忽略本次指令");
+    return;
+  }
+  lastTriggerTime = now;
+  Serial.println("收到开机指令，触发继电器");
+  digitalWrite(RELAY_PIN, LOW);  //低电平吸合
+  delay(PRESS_DURATION);
+  digitalWrite(RELAY_PIN, HIGH);
+  Serial.println("继电器释放，模拟按键松开");
+}
+
+//MQTT消息回调
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  String msgPayload = "";
+  for(int i=0; i<length; i++){
+    msgPayload += (char)payload[i];
+  }
+  Serial.print("收到MQTT消息: ");
+  Serial.println(msgPayload);
+  if(msgPayload == "trigger"){
+    pressPowerButton();
+  }
+}
+
+//WiFi连接
+void connectWifi(){
+  Serial.print("连接WiFi: ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+  while(WiFi.status() != WL_CONNECTED){
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi连接成功，IP：" + WiFi.localIP().toString());
+}
+
+//MQTT重连
+void reconnectMqtt() {
+  while (!client.connected()) {
+    Serial.println("MQTT尝试重连...");
+    String clientId = "ESP32-PCPower";
+    if (client.connect(clientId.c_str())) {
+      Serial.println("MQTT连接成功");
+      client.subscribe(mqttTopic);
+      Serial.print("已订阅主题：");
+      Serial.println(mqttTopic);
+    } else {
+      Serial.print("MQTT连接失败，状态码:");
+      Serial.println(client.state());
+      delay(5000);
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, HIGH); //默认断开继电器
+  connectWifi();
+  client.setServer(mqttServer, mqttPort);
+  client.setCallback(mqttCallback);
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnectMqtt();
+  }
+  client.loop();
+}
+```
+
