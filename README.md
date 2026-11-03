@@ -5,9 +5,9 @@ ESP32 + 光耦隔离继电器并联主板电源键，模拟人手短接电源按
 
 ## 架构图
 
-![ESP32 远程开机控制器架构](docs/architecture/esp32_arch.png)
+![ESP32 远程开机控制器架构](esp32_arch.png)
 
-> 架构图源文件：`docs/architecture/esp32_arch.dot`（graphviz），修改后 `dot -Tpng -o esp32_arch.png esp32_arch.dot` 重新生成。
+> 架构图源文件：`esp32_arch.dot`（graphviz），修改后 `dot -Tpng -o esp32_arch.png esp32_arch.dot` 重新生成。
 
 ## 工作原理
 
